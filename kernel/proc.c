@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "types.h"
 #include "param.h"
 #include "memlayout.h"
@@ -145,6 +146,12 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
+  p->priority = 0; // Every process starts at 0 priority
+  p->current_timeshare = 0; 
+  p->sleeping_timeshares = 0; 
+  p->max_timeshare = 4;
+
 
   return p;
 }
@@ -437,24 +444,70 @@ scheduler(void)
     intr_on();
     intr_off();
 
+    int cand_priority = 4;
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
+      if (p->state == RUNNABLE) {
+
+        // We will also check for starvation condition
+        if (p->sleeping_timeshares >= 10 * p->max_timeshare && p->priority > 0) {
+          p->priority--;
+        }
+        if (p->priority < cand_priority) {
+          cand_priority = p->priority;
+        } 
+        p->sleeping_timeshares++;
+      }
+      release(&p->lock);
+
+    }
+    if (cand_priority == 4){
+      continue;
+    }
+    for (p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE && p->priority == cand_priority) {
+
         p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
+        c->proc = 0;
+        // We will increase timeshare and check if we need to lower priority
+        p->current_timeshare++;
+
+        p->sleeping_timeshares = 0; // The process isn't sleeping no more
+        // TODO Maybe max_timeshare - 1?
+        if (p->current_timeshare == p->max_timeshare) {
+          if (p->priority < 3) {
+            p->priority++;
+            switch (p->priority) {
+              case 0:
+                p->max_timeshare = 4;
+                break;
+              case 1:
+                p->max_timeshare = 8;
+              case 2:
+                p->max_timeshare = 16;
+              case 3:
+                p->max_timeshare = 32;
+            }
+          }
+          p->current_timeshare = 0;
+
+        }
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        c->proc = p;
+        swtch(&c->context, &p->context);
         c->proc = 0;
         found = 1;
       }
       release(&p->lock);
     }
+
     if(found == 0) {
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");

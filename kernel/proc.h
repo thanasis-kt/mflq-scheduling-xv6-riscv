@@ -104,4 +104,13 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // Priority Scheduling Support
+
+  int priority; // [0-3] from highest to lowest
+  int current_timeshare; // Tells us how many trapframes until we need to lower
+                      // the priority of this process
+  int sleeping_timeshares; // Number of trapframes this process is sleeping.
+                           // This number will be used to deal with starvation
+  int max_timeshare;
 };
