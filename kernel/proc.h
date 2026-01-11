@@ -1,3 +1,4 @@
+#include "pstat.h"
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -114,3 +115,7 @@ struct proc {
                            // This number will be used to deal with starvation
   int max_timeshare;
 };
+
+
+
+int getpinfo(struct pstat *);

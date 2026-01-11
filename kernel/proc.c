@@ -741,3 +741,35 @@ procdump(void)
     printf("\n");
   }
 }
+
+int getpinfo(struct pstat * stat) {
+  printf("PROCESS PID IS %d\n",myproc()->pid);
+  printf("GETPINFO OF %p\n",stat);
+  stat->n = 0;
+  struct proc* p;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state != UNUSED) {
+      stat->info[stat->n].state = p->state;
+      stat->info[stat->n].pid = p->pid;
+      // TODO FOR PARENT wait_lock AND NULL CHECK
+      // We also need to lock our parent process
+      acquire(&wait_lock);
+      if (p->parent != NULL)
+        stat->info[stat->n].ppid = p->parent->pid;
+      else
+        stat->info[stat->n].ppid = 0; //init
+      release(&wait_lock);
+      stat->info[stat->n].priority = p->priority;
+      int i;
+      for (i = 0; i < 15 && p->name[i] != '\0'; i++) {
+        stat->info[stat->n].name[i] = p->name[i];
+      }
+      p->name[i] = '\0';
+      stat->info[stat->n].mem_size = p->sz;
+      stat->n++;
+    }
+    release(&p->lock);
+  }
+  return 0;
+}

@@ -1,6 +1,7 @@
 #define SBRK_ERROR ((char *)-1)
 
 struct stat;
+struct pstat;
 
 // system calls
 int fork(void);
@@ -24,6 +25,7 @@ int getpid(void);
 char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);
+int getpinfo(struct pstat *);
 
 // ulib.c
 int stat(const char*, struct stat*);
@@ -47,3 +49,5 @@ void printf(const char*, ...) __attribute__ ((format (printf, 1, 2)));
 // umalloc.c
 void* malloc(uint);
 void free(void*);
+
+

@@ -107,3 +107,18 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_getpinfo(void) {
+  struct pstat stat;
+  struct proc* p = myproc();
+  uint64 addr;
+  argaddr(0, &addr);
+  //stat = (struct pstat*) x;
+  printf("STAT IS AT Address %p\n",&stat);
+  
+  int x = getpinfo(&stat);
+  // We still have to copy to userspace virtual memory
+  copyout(p->pagetable,addr,(char*)&stat,sizeof(stat));
+  return x;
+}
