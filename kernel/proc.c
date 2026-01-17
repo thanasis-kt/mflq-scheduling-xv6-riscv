@@ -436,6 +436,7 @@ scheduler(void)
 
   c->proc = 0;
   for(;;){
+
     // The most recent process to run may have had interrupts
     // turned off; enable them to avoid a deadlock if all
     // processes are waiting. Then turn them back off
@@ -444,31 +445,73 @@ scheduler(void)
     intr_on();
     intr_off();
 
-    int cand_priority = 4;
     int found = 0;
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if (p->state == RUNNABLE) {
 
-        // We will also check for starvation condition
-        if (p->sleeping_timeshares >= 10 * p->max_timeshare && p->priority > 0) {
-          p->priority--;
-        }
-        if (p->priority < cand_priority) {
-          cand_priority = p->priority;
-        } 
-        p->sleeping_timeshares++;
+    /*
+     * - FIND PRIORITY AND START ROUND ROBIN. 
+     *
+     * - IF PREVIOUS EXIST SELECT THAT.
+     *
+     * - ELSE RUN FOR 1 TICK
+     *
+     * - IF RUN FOR TIMESHARE, fIND NEXT SAME PRIORITY PROCESS AND CHECK FOR STARVATION
+     *
+     */
+
+    int current_priority = 4;
+    int flag;
+    p = proc;
+    while (p < &proc[NPROC]) {
+      flag = 0;
+
+      // TODO IF LOWER PRIORITY EXISTS AND STARVATION
+      struct proc* pr;
+      struct proc* cand;
+      int cand_priority = 4;
+      for (pr = proc; pr < &proc[NPROC]; pr++) {
+        acquire(&pr->lock);
+        if (pr->state != UNUSED) {
+          pr->sleeping_timeshares++;
+          if (pr->sleeping_timeshares > 10 * pr->max_timeshare && pr->priority > 0) {
+          //  printf("SAVED CHILD FROM STARVATION AT LEVEL %d\n",pr->priority);
+            pr->priority--;
+            switch (pr->priority) {
+              case 0:
+                pr->max_timeshare = 4;
+                break;
+              case 1:
+                pr->max_timeshare = 8;
+                break;
+              case 2:
+                pr->max_timeshare = 16;
+                break;
+              case 3:
+                pr->max_timeshare = 32;
+                break;
+              default:
+                printf("WRONG PRIORITY: %d\n",pr->priority);
+            }
+            pr->sleeping_timeshares = 0;
+            pr->current_timeshare = 0;
+          }
+          if (pr->priority < cand_priority && pr->state == RUNNABLE) {
+            cand = pr;
+            cand_priority = pr->priority;
+          }
+        }      
+        release(&pr->lock);
       }
-      release(&p->lock);
-
-    }
-    if (cand_priority == 4){
-      continue;
-    }
-    for (p = proc; p < &proc[NPROC]; p++) {
+      if (current_priority > cand_priority) {
+        // Switch to canditate
+        current_priority = cand_priority;
+        p = cand;
+      }
+      if (current_priority == 4) {
+        break;
+      }
       acquire(&p->lock);
-      if(p->state == RUNNABLE && p->priority == cand_priority) {
-
+      if(p->state == RUNNABLE) {
+        current_priority = p->priority;
         p->state = RUNNING;
 
         // Process is done running for now.
@@ -478,8 +521,8 @@ scheduler(void)
         p->current_timeshare++;
 
         p->sleeping_timeshares = 0; // The process isn't sleeping no more
-        // TODO Maybe max_timeshare - 1?
-        if (p->current_timeshare == p->max_timeshare) {
+        if (p->current_timeshare >= p->max_timeshare) {
+          flag = 1;
           if (p->priority < 3) {
             p->priority++;
             switch (p->priority) {
@@ -488,10 +531,13 @@ scheduler(void)
                 break;
               case 1:
                 p->max_timeshare = 8;
+                break;
               case 2:
                 p->max_timeshare = 16;
+                break;
               case 3:
                 p->max_timeshare = 32;
+                break;
             }
           }
           p->current_timeshare = 0;
@@ -505,7 +551,31 @@ scheduler(void)
         c->proc = 0;
         found = 1;
       }
+      else {
+//        printf("NOOTROPIA TYPE SHIT\n");
+          release(&p->lock);
+          cand_priority = 4;
+          break;
+      }
       release(&p->lock);
+      if (flag == 1) {
+        // TODO FIND NEXT PRIORITY AND STARVATION
+        //while (p < &proc[NPROC]) {
+        struct proc* pr;
+        for (pr = proc; pr != &proc[NPROC]; pr++) {
+          if (pr == p)
+            continue;
+        
+          acquire(&pr->lock);
+          if (pr->priority == current_priority && pr->state == RUNNABLE) {
+            //printf("ROUND ROBIN FOR %d\n",current_priority);
+            release(&pr->lock);
+            break;
+          }
+          release(&pr->lock);
+        }
+        p = pr;
+      }  
     }
 
     if(found == 0) {
@@ -743,8 +813,8 @@ procdump(void)
 }
 
 int getpinfo(struct pstat * stat) {
-  printf("PROCESS PID IS %d\n",myproc()->pid);
-  printf("GETPINFO OF %p\n",stat);
+  //printf("PROCESS PID IS %d\n",myproc()->pid);
+  //printf("GETPINFO OF %p\n",stat);
   stat->n = 0;
   struct proc* p;
   for (p = proc; p < &proc[NPROC]; p++) {
