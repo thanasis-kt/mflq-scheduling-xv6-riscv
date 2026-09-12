@@ -108,14 +108,21 @@ struct proc {
 
   // Priority Scheduling Support
 
-  int priority; // [0-3] from highest to lowest
-  int current_timeshare; // Tells us how many trapframes until we need to lower
-                      // the priority of this process
-  int sleeping_timeshares; // Number of trapframes this process is sleeping.
-                           // This number will be used to deal with starvation
-  int max_timeshare;
+  int priority;             // [0-3] from highest to lowest
+  int current_timeshare;    // How many timeshares this process has run at it's 
+                            // current priority level
+  
+  int sleeping_timeshares;  // Number of timeshares this process is sleeping. 
+                            // Used for dealing with starvation
+                            
+  int max_timeshare;        // Tells us how many timeshare this process is 
+                            // allowed to run without giving up the CPU. The
+                            // number  is based on it's priority
+
 };
 
 
 
+// Returns information about every current process in our system. pstat is 
+// declared in pstat.h
 int getpinfo(struct pstat *);

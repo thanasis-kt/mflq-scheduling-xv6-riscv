@@ -147,6 +147,7 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // Adding priority based information
   p->priority = 0; // Every process starts at 0 priority
   p->current_timeshare = 0; 
   p->sleeping_timeshares = 0; 
@@ -424,7 +425,7 @@ kwait(uint64 addr)
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
-//  - choose a process to run.
+//  - choose a process to run based on MFLQ scheduling
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
@@ -447,33 +448,24 @@ scheduler(void)
 
     int found = 0;
 
-    /*
-     * - FIND PRIORITY AND START ROUND ROBIN. 
-     *
-     * - IF PREVIOUS EXIST SELECT THAT.
-     *
-     * - ELSE RUN FOR 1 TICK
-     *
-     * - IF RUN FOR TIMESHARE, fIND NEXT SAME PRIORITY PROCESS AND CHECK FOR STARVATION
-     *
-     */
-
     int current_priority = 4;
-    int flag;
+    // This will be used to be able to tell if we should round robin
+    int flag; 
     p = proc;
     while (p < &proc[NPROC]) {
       flag = 0;
 
-      // TODO IF LOWER PRIORITY EXISTS AND STARVATION
       struct proc* pr;
       struct proc* cand;
       int cand_priority = 4;
+      // Finding the process with the lowest priority value in our system, that
+      // is ready to run
       for (pr = proc; pr < &proc[NPROC]; pr++) {
         acquire(&pr->lock);
         if (pr->state != UNUSED) {
           pr->sleeping_timeshares++;
+          // Checking for starvation
           if (pr->sleeping_timeshares > 10 * pr->max_timeshare && pr->priority > 0) {
-          //  printf("SAVED CHILD FROM STARVATION AT LEVEL %d\n",pr->priority);
             pr->priority--;
             switch (pr->priority) {
               case 0:
@@ -485,12 +477,9 @@ scheduler(void)
               case 2:
                 pr->max_timeshare = 16;
                 break;
-              case 3:
-                pr->max_timeshare = 32;
-                break;
-              default:
-                printf("WRONG PRIORITY: %d\n",pr->priority);
             }
+            // We reset those values. Else it could make a process always switch 
+            // levels because of lower max_timeshare values on lower priorities
             pr->sleeping_timeshares = 0;
             pr->current_timeshare = 0;
           }
@@ -501,12 +490,13 @@ scheduler(void)
         }      
         release(&pr->lock);
       }
+      // We only switch to another process, only if it has lower priority
       if (current_priority > cand_priority) {
         // Switch to canditate
         current_priority = cand_priority;
         p = cand;
       }
-      if (current_priority == 4) {
+      if (current_priority == 4) { 
         break;
       }
       acquire(&p->lock);
@@ -517,12 +507,12 @@ scheduler(void)
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
+
         // We will increase timeshare and check if we need to lower priority
         p->current_timeshare++;
-
         p->sleeping_timeshares = 0; // The process isn't sleeping no more
         if (p->current_timeshare >= p->max_timeshare) {
-          flag = 1;
+          flag = 1; // we should round robin
           if (p->priority < 3) {
             p->priority++;
             switch (p->priority) {
@@ -551,30 +541,37 @@ scheduler(void)
         c->proc = 0;
         found = 1;
       }
+      // Process became not runnable (maybe it is running in another CPU)
+      // We should start this again
       else {
-//        printf("NOOTROPIA TYPE SHIT\n");
           release(&p->lock);
-          cand_priority = 4;
           break;
       }
       release(&p->lock);
       if (flag == 1) {
-        // TODO FIND NEXT PRIORITY AND STARVATION
-        //while (p < &proc[NPROC]) {
-        struct proc* pr;
-        for (pr = proc; pr != &proc[NPROC]; pr++) {
-          if (pr == p)
-            continue;
-        
-          acquire(&pr->lock);
-          if (pr->priority == current_priority && pr->state == RUNNABLE) {
-            //printf("ROUND ROBIN FOR %d\n",current_priority);
+        // We should do round robin. We just change current priority to 4,
+        // so that it finds the best available priority. The only problem is that
+        // if the process is at level 3 already, we might re-execute that process
+        // and this might affect us. So we deal with that by choosing another process 
+        if (current_priority == 3) {
+          struct proc* pr;
+          for (pr = proc; pr != &proc[NPROC]; pr++) {
+            if (pr == p)
+              continue;
+          
+            // Finding another process with the same priority
+            acquire(&pr->lock);
+            if (pr->priority == current_priority && pr->state == RUNNABLE) {
+              release(&pr->lock);
+              break;
+            }
             release(&pr->lock);
-            break;
           }
-          release(&pr->lock);
-        }
-        p = pr;
+          p = pr;
+        }  
+        else {
+          current_priority = 4;
+        }  
       }  
     }
 
@@ -813,17 +810,16 @@ procdump(void)
 }
 
 int getpinfo(struct pstat * stat) {
-  //printf("PROCESS PID IS %d\n",myproc()->pid);
-  //printf("GETPINFO OF %p\n",stat);
   stat->n = 0;
   struct proc* p;
+  // For every process in our system we copy the necessary
+  // information
   for (p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if (p->state != UNUSED) {
       stat->info[stat->n].state = p->state;
       stat->info[stat->n].pid = p->pid;
-      // TODO FOR PARENT wait_lock AND NULL CHECK
-      // We also need to lock our parent process
+      // We also need to lock our parent process 
       acquire(&wait_lock);
       if (p->parent != NULL)
         stat->info[stat->n].ppid = p->parent->pid;
